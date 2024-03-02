@@ -162,4 +162,167 @@ const refreshAccessToken = asyncHandler(async(req,res)=>{
     console.log("Error while refreshing token :",error);
   }
 })
-export {registerUser,loginUser,logoutUser,refreshAccessToken}
+
+const changePassword = asyncHandler(async(req,res)=>{
+  //verify if loggedin or not
+  //old password lo and new password lo
+  //new password update krdo
+  const {oldpassword, newPassword,confirmPassword} = req.body
+  if(!oldpassword || !newPassword || !confirmPassword){
+    throw new ApiError(401,"all fields are required")
+  }
+  if(newPassword!==confirmPassword){
+    throw new ApiError(401,"new and confirm password should be equal")
+  }
+  const user = await User.findById(req.user._id)
+  const isPasswordValid = await user.isPasswordCorrect(oldpassword)
+  if(!isPasswordValid){
+    throw new ApiError(401,"password is incorrect")
+  }
+  user.password = newPassword
+  await user.save({validateBeforeSave:false})
+  return res.status(201)
+  .json(
+    new ApiResponse("password changed",201,{})
+  )
+})
+
+const getUser = asyncHandler(async(req,res)=>{
+  return res.status(201).json(new ApiResponse("user fetched",201,req.user))
+})
+
+const updateUserDetails = asyncHandler(async(req,res)=>{
+  //if user is loggedin or not
+  //take details and check
+  //update in db
+  const {fullname,email} = req.body
+  if(!fullname){
+    throw new ApiError(401,"fullname is required")
+  }
+  if(!email){
+    throw new ApiError(401,"email is required")
+  }
+  const user = await User.findByIdAndUpdate(req.user._id,
+    {
+      $set:{username,email}
+    },
+    {
+      new: true
+    }
+  ).select("-password")
+  return res.status(201).json(new ApiResponse("details updated successfully",201,user))
+})
+
+const updateAvatar = asyncHandler(async(req,res)=>{
+  //loggediin or not 
+  //take avatar through multer
+  //upload on cloudinary
+  //update the url in db
+  const avatarlocalfilepath = req.file?.path
+  if(!avatarlocalfilepath){
+    throw new ApiError(401,"file not found")
+  }
+  const newAvatar = await uploadOnCloudinary(avatarlocalfilepath)
+  if(!newAvatar.url){
+    throw new ApiError(400,"error while uploading avatar")
+  }
+  const user = await User.findByIdAndUpdate(req.user._id,
+    {
+      $set:{avatar: newAvatar.url}
+    },
+    {new:true}
+    ).select("-password")
+
+    return res.status(200).json(new ApiResponse("avatar updated successfully",200,user))
+})
+
+const updateCoverImage = asyncHandler(async(req,res)=>{
+  //loggediin or not 
+  //take avatar through multer
+  //upload on cloudinary
+  //update the url in db
+  const coverLocalfilepath = req.file?.path
+  if(!coverLocalfilepath){
+    throw new ApiError(401,"file not found")
+  }
+  const newCover = await uploadOnCloudinary(coverLocalfilepath)
+  if(!newCover.url){
+    throw new ApiError(400,"error while uploading avatar")
+  }
+  const user = await User.findByIdAndUpdate(req.user._id,
+    {
+      $set:{coverImage: newCover.url}
+    },
+    {new:true}
+    ).select("-password")
+
+    return res.status(200).json(new ApiResponse("cover image updated successfully",200,user))
+})
+
+// print krwakr dekhna h channel ko subscriber etc ko
+const getUserChannelProfile = asyncHandler(async(req,res)=>{
+  const {username} = req.params
+  if(!username){
+    throw new ApiError(401,"username not found")
+  }
+  const channelInfo = User.aggregate([
+    {
+      $match: {username: username?.toLowerCase()}
+    },
+    {
+      $lookup: {
+        from: "subscriptions",
+        localField: "_id",
+        foreignField: "channel",
+        as: "subscribers"
+      }
+    },
+    {
+      $lookup: {
+        from: "subscriptions",
+        localField: "_id",
+        foreignField: "subscriber",
+        as: "subscribedChannels"
+      }
+    },
+    {
+      $addFields: {
+        subscriberCount: {
+          $size: "$subscribers"
+        },
+        subscribedChannelsCount: {
+          $size: "$subscribedChannels"
+        },
+        isSubscribed: {
+          if: {$in:[req.user?._id,"$subscribers.subscriber"]},
+          then: true,
+          else: false
+        }
+      }
+    },
+    {
+      $project: {
+        fullname:1,
+        username:1,
+        subscribedChannelsCount:1,
+        subscriberCount:1,
+        avatar:1,
+        coverImage : 1
+      }
+    }
+  ])
+  if(!channel?.length) throw new ApiError(500,"error while fetching data of the channel");
+  return res.status(201).json(new ApiResponse("channel data fetched successfully",201,channel[0]))
+})
+
+export {
+  registerUser,
+  loginUser,
+  logoutUser,
+  refreshAccessToken,
+  changePassword,
+  getUser,
+  updateUserDetails,
+  updateAvatar,
+  updateCoverImage
+}
