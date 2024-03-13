@@ -5,6 +5,7 @@ import { User } from "../models/user.model.js";
 import { uploadOnCloudinary } from "../utils/cloudinary.js";
 import cookieParser from "cookie-parser";
 import { jwtVerify } from "../middlewares/auth.middleware.js";
+import mongoose from "mongoose";
 
 async function generateAccessandRefreshToken(userid){
   try {
@@ -73,8 +74,9 @@ const registerUser = asyncHandler(async function (req,res){
 
 const loginUser = asyncHandler(async function(req,res){
   const {username,email,password} = req.body
-  // console.log("ayat");
-  if(!(username || email)){
+  // console.log(username);
+  // console.log(email);
+  if(!username && !email){
     throw new ApiError(400,"username or email is required")
   }
 
@@ -167,15 +169,15 @@ const changePassword = asyncHandler(async(req,res)=>{
   //verify if loggedin or not
   //old password lo and new password lo
   //new password update krdo
-  const {oldpassword, newPassword,confirmPassword} = req.body
-  if(!oldpassword || !newPassword || !confirmPassword){
+  const {oldPassword, newPassword,confirmPassword} = req.body
+  if(!oldPassword || !newPassword || !confirmPassword){
     throw new ApiError(401,"all fields are required")
   }
   if(newPassword!==confirmPassword){
     throw new ApiError(401,"new and confirm password should be equal")
   }
   const user = await User.findById(req.user._id)
-  const isPasswordValid = await user.isPasswordCorrect(oldpassword)
+  const isPasswordValid = await user.isPasswordCorrect(oldPassword)
   if(!isPasswordValid){
     throw new ApiError(401,"password is incorrect")
   }
@@ -265,7 +267,8 @@ const getUserChannelProfile = asyncHandler(async(req,res)=>{
   if(!username){
     throw new ApiError(401,"username not found")
   }
-  const channelInfo = User.aggregate([
+  // console.log("ayat");
+  const channelInfo = await User.aggregate([
     {
       $match: {username: username?.toLowerCase()}
     },
@@ -311,8 +314,58 @@ const getUserChannelProfile = asyncHandler(async(req,res)=>{
       }
     }
   ])
-  if(!channel?.length) throw new ApiError(500,"error while fetching data of the channel");
-  return res.status(201).json(new ApiResponse("channel data fetched successfully",201,channel[0]))
+  if(!channelInfo?.length) throw new ApiError(500,"error while fetching data of the channel");
+  return res.status(201).json(new ApiResponse("channel data fetched successfully",201,channelInfo[0]))
+})
+
+const getWatchHistory = asyncHandler(async(req,res)=>{
+  //get user
+  //write pipelines=> match with user id,lookup vid and further lookup user(for info of the owner of vid)
+  const user = await User.aggregate([
+    {
+      $match: {
+        _id : new mongoose.Types.ObjectId(req.user._id)
+      }
+    },
+    {
+      $lookup:{
+        from: "videos",
+        localField: "watchHistory",
+        foreignField: "_id",
+        as: "watchHistory",
+        pipeline: [
+          { $lookup:{
+              from: "users",
+              localField: "owner",
+              foreignField: "_id",
+              as: "owner",
+              pipeline: [
+                {
+                  $project:{
+                    fullname:1,
+                    username: 1,
+                    avatar: 1
+                  }
+                },
+                {
+                  $addFields: {
+                    owner: {
+                      $first: "$owner"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ])
+  if(!user) throw new ApiError(500,"error while fetching history");
+
+  return res
+    .status(201)
+    .json(new ApiResponse("data fetched succesfully",201,user[0].watchHistory))
 })
 
 export {
@@ -324,5 +377,7 @@ export {
   getUser,
   updateUserDetails,
   updateAvatar,
-  updateCoverImage
+  updateCoverImage,
+  getUserChannelProfile,
+  getWatchHistory
 }
